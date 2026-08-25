@@ -1,0 +1,207 @@
+name: Build iOS IPA
+
+# 触发条件:
+#   1. 手动触发(在 GitHub 仓库 Actions 页面点 "Run workflow")
+#   2. 推送 v* 开头的 tag 时自动触发(如 v1.0, v1.1-beta)
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '要构建的分支/tag/commit(默认当前分支)'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-ipa:
+    name: Build Unsigned IPA
+    runs-on: macos-14   # Apple Silicon (M1),原生编译 iOS arm64 最快
+    timeout-minutes: 90  # 首次构建约 40-60 分钟,留足余量
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app
+          sudo xcodebuild -license accept
+          xcodebuild -version
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Homebrew dependencies
+        run: |
+          brew install pkg-config autoconf automake libtool cmake
+
+      - name: Install kivy-ios and kivy
+        run: |
+          python -m pip install --upgrade pip
+          pip install kivy-ios kivy
+
+      - name: Cache kivy-ios build output
+        id: cache-dist
+        uses: actions/cache@v4
+        with:
+          path: dist
+          key: ${{ runner.os }}-kivyios-dist-${{ hashFiles('buildozer.spec') }}-v2
+          restore-keys: |
+            ${{ runner.os }}-kivyios-dist-
+
+      - name: Build Python3 & Kivy for iOS (首次约 30-50 分钟)
+        if: steps.cache-dist.outputs.cache-hit != 'true'
+        run: |
+          toolchain build python3 kivy
+
+      - name: Verify font file exists
+        run: |
+          if [ ! -f chinese.ttf ]; then
+            echo "::error::chinese.ttf 未找到,请先放入项目根目录"
+            exit 1
+          fi
+          ls -lh chinese.ttf
+
+      - name: Create Xcode project
+        run: |
+          # toolchain create <name> <project-dir>
+          toolchain create sudoku .
+          ls -la sudoku-ios/
+
+      - name: List available schemes
+        run: |
+          cd sudoku-ios
+          xcodebuild -project sudoku.xcodeproj -list || true
+
+      - name: Build unsigned .app (Release, arm64)
+        run: |
+          cd sudoku-ios
+          xcodebuild \
+            -project sudoku.xcodeproj \
+            -scheme sudoku \
+            -configuration Release \
+            -sdk iphoneos \
+            -arch arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=NO \
+            build \
+            | tee build.log
+
+          # 兼容 Xcode 15+ 的产物路径
+          echo "---"
+          echo "Searching for sudoku.app..."
+          find . -name "sudoku.app" -type d 2>/dev/null
+
+      - name: Locate .app bundle
+        id: locate
+        run: |
+          APP_PATH=$(find sudoku-ios -name "sudoku.app" -type d 2>/dev/null | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::未找到 sudoku.app"
+            exit 1
+          fi
+          echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
+          echo "Found: $APP_PATH"
+
+      - name: Package unsigned IPA
+        run: |
+          APP_PATH="${{ steps.locate.outputs.app_path }}"
+          STAGE=$(mktemp -d)
+          mkdir -p "$STAGE/Payload"
+          cp -R "$APP_PATH" "$STAGE/Payload/"
+          cd "$STAGE"
+          # 用 -0 (store, 不压缩) 避免 iOS 对 IPA 内文件压缩的限制问题
+          zip -qry "${{ github.workspace }}/sudoku-unsigned.ipa" Payload
+          cd "${{ github.workspace }}"
+          ls -lh sudoku-unsigned.ipa
+
+      - name: Upload unsigned IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sudoku-unsigned-ipa
+          path: sudoku-unsigned.ipa
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload build log (for debugging)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: sudoku-ios/build.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ============================================================
+  # 可选:自动签名模式(需配置 Secrets)
+  # 启用方式:取消下方注释,并在仓库 Settings → Secrets 配置:
+  #   APPLE_CERT_BASE64        - 开发者证书 .p12 的 base64 编码
+  #   APPLE_CERT_PASSWORD       - 证书密码
+  #   APPLE_PROVISION_BASE64    - provisioning profile 的 base64 编码
+  #   APPLE_TEAM_ID             - Team ID(10 位字母数字)
+  # 注意:免费 Apple ID 证书有效期仅 7 天,需定期更新
+  # ============================================================
+  # sign-ipa:
+  #   needs: build-ipa
+  #   if: ${{ vars.ENABLE_AUTO_SIGN == 'true' }}
+  #   runs-on: macos-14
+  #   steps:
+  #     - name: Download unsigned IPA
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: sudoku-unsigned-ipa
+  #
+  #     - name: Import signing certificate
+  #       env:
+  #         APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
+  #         APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+  #       run: |
+  #         echo "$APPLE_CERT_BASE64" | base64 -d > cert.p12
+  #         security create-keychain -p "" build.keychain
+  #         security import cert.p12 -k build.keychain -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
+  #         security set-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+  #
+  #     - name: Import provisioning profile
+  #       env:
+  #         APPLE_PROVISION_BASE64: ${{ secrets.APPLE_PROVISION_BASE64 }}
+  #       run: |
+  #         echo "$APPLE_PROVISION_BASE64" | base64 -d > embedded.mobileprovision
+  #
+  #     - name: Resign IPA
+  #       env:
+  #         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+  #       run: |
+  #         unzip -q sudoku-unsigned.ipa -d stage
+  #         cp embedded.mobileprovision stage/Payload/sudoku.app/
+  #         # 生成最小 entitlements
+  #         cat > entitlements.plist <<EOF
+  #         <?xml version="1.0" encoding="UTF-8"?>
+  #         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+  #         <plist version="1.0">
+  #         <dict>
+  #           <key>get-task-allow</key>
+  #           <true/>
+  #           <key>application-identifier</key>
+  #           <string>${APPLE_TEAM_ID}.org.local.sudoku</string>
+  #         </dict>
+  #         </plist>
+  #         EOF
+  #         CERT_ID="Apple Development: $APPLE_TEAM_ID"
+  #         codesign -f -s "$CERT_ID" --entitlements entitlements.plist stage/Payload/sudoku.app
+  #         cd stage && zip -qry ../sudoku-signed.ipa Payload
+  #
+  #     - name: Upload signed IPA
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: sudoku-signed-ipa
+  #         path: sudoku-signed.ipa
+  #         retention-days: 7
