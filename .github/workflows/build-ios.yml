@@ -41,9 +41,11 @@ jobs:
         run: |
           brew install pkg-config autoconf automake libtool cmake
 
-      - name: Install kivy-ios and kivy
+      - name: Install Cython, kivy-ios and kivy
         run: |
           python -m pip install --upgrade pip
+          # 必须先装 cython,kivy-ios 编译 Kivy 时需要它生成 C 扩展
+          pip install cython
           pip install kivy-ios kivy
 
       - name: Cache kivy-ios build output
@@ -51,7 +53,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: dist
-          key: ${{ runner.os }}-kivyios-dist-${{ hashFiles('buildozer.spec') }}-v2
+          key: ${{ runner.os }}-kivyios-dist-${{ hashFiles('buildozer.spec') }}-v3
           restore-keys: |
             ${{ runner.os }}-kivyios-dist-
 
