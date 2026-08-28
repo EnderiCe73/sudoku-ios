@@ -84,7 +84,8 @@ jobs:
       - name: Build unsigned .app (Release, arm64)
         run: |
           cd sudoku-ios
-          # 显式指定 BUILT_PRODUCTS_DIR,确保产物在项目目录内而非 DerivedData
+          # 产物保留在默认 DerivedData(kivy-ios 的 Run Script 会 rsync 源码目录,
+          # 若把产物放进项目树会递归同步自身导致 rsync code 24 失败)
           # set -o pipefail 确保 xcodebuild 失败时能正确报错(tee 不会吞掉退出码)
           set -o pipefail
           xcodebuild \
@@ -93,8 +94,7 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -arch arm64 \
-            BUILT_PRODUCTS_DIR="$PWD/build" \
-            CONFIGURATION_BUILD_DIR="$PWD/build/Release-iphoneos" \
+            IPHONEOS_DEPLOYMENT_TARGET=13.0 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -104,30 +104,30 @@ jobs:
             2>&1 | tee build.log
 
           echo "---"
-          echo "Build artifacts:"
-          ls -la build/ 2>/dev/null || true
-          find build -name "*.app" -type d 2>/dev/null || true
+          echo "Product dir from build settings:"
+          xcodebuild -project sudoku.xcodeproj -scheme sudoku -configuration Release -sdk iphoneos -showBuildSettings 2>/dev/null | grep -E "BUILT_PRODUCTS_DIR|TARGET_BUILD_DIR" || true
 
       - name: Locate .app bundle
         id: locate
         run: |
-          # 优先在明确的 BUILT_PRODUCTS_DIR 查找
-          APP_PATH=$(find sudoku-ios/build -name "sudoku.app" -type d 2>/dev/null | head -1)
-          # 若未找到,扩大搜索范围(包括 DerivedData)
-          if [ -z "$APP_PATH" ]; then
-            echo "[WARN] 未在 sudoku-ios/build 找到,扩大搜索范围..."
-            APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -name "sudoku.app" -type d 2>/dev/null | head -1)
+          # 1) 从 xcodebuild 构建设置直接获取产物目录(最可靠)
+          BUILT_DIR=$(cd sudoku-ios && xcodebuild -project sudoku.xcodeproj -scheme sudoku -configuration Release -sdk iphoneos -showBuildSettings 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3; exit}')
+          APP_PATH=""
+          if [ -n "$BUILT_DIR" ] && [ -d "$BUILT_DIR/sudoku.app" ]; then
+            APP_PATH="$BUILT_DIR/sudoku.app"
           fi
-          # 最后兜底:全盘搜索(限制深度)
+          # 2) 兜底: 搜索 DerivedData
           if [ -z "$APP_PATH" ]; then
-            echo "[WARN] 在 DerivedData 也未找到,全盘搜索..."
-            APP_PATH=$(find sudoku-ios "$HOME" -name "sudoku.app" -type d -maxdepth 8 2>/dev/null | head -1)
+            echo "[WARN] showBuildSettings 未定位到,搜索 DerivedData..."
+            APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -name "sudoku.app" -type d -maxdepth 8 2>/dev/null | head -1)
+          fi
+          # 3) 最后兜底: 搜索项目目录
+          if [ -z "$APP_PATH" ]; then
+            echo "[WARN] DerivedData 也未找到,搜索项目目录..."
+            APP_PATH=$(find sudoku-ios -name "sudoku.app" -type d 2>/dev/null | head -1)
           fi
           if [ -z "$APP_PATH" ]; then
-            echo "::error::未找到 sudoku.app 产物"
-            echo "       可能原因:编译实际失败但被 pipe 吞掉了错误码"
-            echo "       请下载 build-log artifact 查看详细报错"
-            find sudoku-ios -name "*.app" -type d 2>/dev/null | head -5 || true
+            echo "::error::未找到 sudoku.app 产物,请下载 build-log artifact 查看详细报错"
             exit 1
           fi
           echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
