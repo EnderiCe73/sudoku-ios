@@ -42,16 +42,54 @@ class SudokuCore:
             for j in range(start_col, start_col + 3):
                 if board[i][j] == num: return False
         return True
-    
+
+    @staticmethod
+    def _count_solutions(board, limit=2):
+        """统计解的数量，数到 limit 即提前返回（用于唯一性判断）。
+        用最少候选数(MRV)优先展开最受限的空格，剪枝极快。"""
+        best = None
+        best_count = 10
+        for i in range(9):
+            for j in range(9):
+                if board[i][j] == 0:
+                    c = sum(1 for n in range(1, 10) if SudokuCore._is_valid(board, i, j, n))
+                    if c == 0:
+                        return 0  # 已无解
+                    if c < best_count:
+                        best_count = c
+                        best = (i, j)
+        if best is None:
+            return 1
+        row, col = best
+        count = 0
+        for num in range(1, 10):
+            if SudokuCore._is_valid(board, row, col, num):
+                board[row][col] = num
+                count += SudokuCore._count_solutions(board, limit)
+                board[row][col] = 0
+                if count >= limit:
+                    return count
+        return count
+
     @staticmethod
     def generate_puzzle(difficulty='easy'):
         solution = SudokuCore.generate_solution()
         puzzle = [row[:] for row in solution]
+        # 目标挖空数量（作为上限，实际以保证唯一解为准）
         cells_to_remove = {'easy': 38, 'medium': 48, 'hard': 56}.get(difficulty, 38)
         positions = [(i, j) for i in range(9) for j in range(9)]
         random.shuffle(positions)
-        for i, j in positions[:cells_to_remove]:
+        removed = 0
+        for i, j in positions:
+            if removed >= cells_to_remove:
+                break
+            backup = puzzle[i][j]
             puzzle[i][j] = 0
+            # 仅当挖空后仍然唯一解时才保留这次挖空，否则还原
+            if SudokuCore._count_solutions([row[:] for row in puzzle], limit=2) != 1:
+                puzzle[i][j] = backup
+            else:
+                removed += 1
         return puzzle, solution
 
 class SudokuGame:

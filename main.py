@@ -112,7 +112,8 @@ class SudokuApp(App):
         grid_container = BoxLayout(orientation='vertical', size_hint=(1, 0.55), padding=10)
         with grid_container.canvas.before:
             Color(0.9, 0.88, 0.82, 1)
-            Rectangle(pos=grid_container.pos, size=grid_container.size)
+            self.grid_bg_rect = Rectangle(pos=grid_container.pos, size=grid_container.size)
+        grid_container.bind(pos=self._update_grid_bg, size=self._update_grid_bg)
         
         self.grid_layout = GridLayout(cols=9, spacing=2, padding=5)
         self.create_grid()
@@ -145,12 +146,18 @@ class SudokuApp(App):
         self.bg_rect.pos = instance.pos
         self.bg_rect.size = instance.size
 
+    def _update_grid_bg(self, instance, value):
+        self.grid_bg_rect.pos = instance.pos
+        self.grid_bg_rect.size = instance.size
+
     def reset_highlights(self):
         for cell in self.cells.values():
             cell.reset_highlight()
 
     def highlight_matching_numbers(self, num):
         for cell in self.cells.values():
+            if cell.is_error:
+                continue  # 错误红不被同数高亮盖掉
             if cell.text == str(num) and cell.text != "":
                 cell.background_color = HIGHLIGHT_CELL_COLOR
 
@@ -190,6 +197,8 @@ class SudokuApp(App):
         row, col = instance.row, instance.col
         start_row, start_col = 3 * (row // 3), 3 * (col // 3)
         for (r, c), cell in self.cells.items():
+            if cell.is_error:
+                continue  # 错误红不被联动高亮盖掉
             if (r == row) or (c == col) or (start_row <= r < start_row+3 and start_col <= c < start_col+3):
                 cell.background_color = HIGHLIGHT_CELL_COLOR
 
@@ -235,7 +244,7 @@ class SudokuApp(App):
         else:
             self.selected_cell.is_error = True
             self.selected_cell.text = str(num)
-            self.game.board[row][col] = num
+            # 不把非法值写入 board，避免污染模型、堵死同行/列/宫的正确落子
             self.selected_cell.background_color = (0.9, 0.6, 0.6, 1)
     
     def erase_cell(self, instance):
