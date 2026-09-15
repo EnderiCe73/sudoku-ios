@@ -52,15 +52,36 @@ jobs:
         id: cache-dist
         uses: actions/cache@v4
         with:
-          path: dist
-          key: ${{ runner.os }}-kivyios-dist-${{ hashFiles('buildozer.spec') }}-v3
+          # 缓存放 ~/kivyios-dist(绝对路径),项目里的 dist 会改成指向它的软链接
+          path: ${{ runner.os == 'macOS' && format('{0}/kivyios-dist', env.HOME) || 'dist' }}
+          key: ${{ runner.os }}-kivyios-dist-${{ hashFiles('buildozer.spec') }}-v4
           restore-keys: |
             ${{ runner.os }}-kivyios-dist-
 
       - name: Build Python3 & Kivy for iOS (首次约 30-50 分钟)
-        if: steps.cache-dist.outputs.cache-hit != 'true'
         run: |
-          toolchain build python3 kivy
+          # 缓存命中时直接跳过;否则编译 dist/
+          if [ -d "$HOME/kivyios-dist" ] && [ ! -e dist ]; then
+            # 缓存命中但 dist 软链接还没建(上一次运行被中断的情况)
+            ln -s "$HOME/kivyios-dist" dist
+            echo "[CACHE] 已恢复 dist 软链接"
+          elif [ -d "$HOME/kivyios-dist" ] && [ -L dist ]; then
+            echo "[CACHE] 软链接已存在,跳过 toolchain build"
+          elif [ -d dist ] && [ ! -L dist ]; then
+            echo "[BUILD] 命中缓存但 dist 是物理目录,改造成软链接..."
+            mv dist "$HOME/kivyios-dist"
+            ln -s "$HOME/kivyios-dist" dist
+          else
+            echo "[BUILD] 未命中缓存,运行 toolchain build python3 kivy"
+            toolchain build python3 kivy
+            # 构建完成后立即搬到项目外,rsync 不跟随 symlink 就不会拷 2GB
+            rm -rf "$HOME/kivyios-dist"
+            mv dist "$HOME/kivyios-dist"
+            ln -s "$HOME/kivyios-dist" dist
+          fi
+          echo "--- dist 状态 ---"
+          ls -la dist
+          du -sh "$HOME/kivyios-dist" 2>/dev/null || true
 
       - name: Verify font file exists
         run: |
@@ -75,21 +96,9 @@ jobs:
           # toolchain create <name> <project-dir>
           toolchain create sudoku .
           ls -la sudoku-ios/
-
-      - name: Patch rsync in Xcode Run Script (exclude dist/ and build/)
-        run: |
-          # kivy-ios 生成的 Xcode 工程自带 Run Script 构建阶段,会 rsync 整个源码树到 .app 包里。
-          # dist/ 里是 2GB 的交叉编译产物(含符号链接),rsync 遇到它会报 code 24 "files vanished"。
-          # 解决: 在 rsync 命令里加上 --exclude,让它跳过 dist/、build/ 等大目录。
-          PBXPROJ="sudoku-ios/sudoku.xcodeproj/project.pbxproj"
-          if grep -q "rsync" "$PBXPROJ"; then
-            cp "$PBXPROJ" "$PBXPROJ.bak"
-            sed -i '' 's|rsync -a |rsync -a --exclude=.git --exclude=dist --exclude=build --exclude=sudoku-ios --exclude=__pycache__ --exclude=*.pyc --exclude=*.ipa --exclude=*.app |g' "$PBXPROJ"
-            echo "[INFO] rsync 已加 --exclude:"
-            grep -n "rsync -a" "$PBXPROJ"
-          else
-            echo "[WARN] pbxproj 里没找到 rsync 命令,跳过 patch"
-          fi
+          # 打印 rsync 命令格式(排查用)
+          echo "--- rsync in pbxproj ---"
+          grep -n "rsync" sudoku-ios/sudoku.xcodeproj/project.pbxproj | head -5 || true
 
       - name: List available schemes
         run: |
