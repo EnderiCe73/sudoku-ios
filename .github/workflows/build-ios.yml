@@ -76,6 +76,21 @@ jobs:
           toolchain create sudoku .
           ls -la sudoku-ios/
 
+      - name: Patch rsync in Xcode Run Script (exclude dist/ and build/)
+        run: |
+          # kivy-ios 生成的 Xcode 工程自带 Run Script 构建阶段,会 rsync 整个源码树到 .app 包里。
+          # dist/ 里是 2GB 的交叉编译产物(含符号链接),rsync 遇到它会报 code 24 "files vanished"。
+          # 解决: 在 rsync 命令里加上 --exclude,让它跳过 dist/、build/ 等大目录。
+          PBXPROJ="sudoku-ios/sudoku.xcodeproj/project.pbxproj"
+          if grep -q "rsync" "$PBXPROJ"; then
+            cp "$PBXPROJ" "$PBXPROJ.bak"
+            sed -i '' 's|rsync -a |rsync -a --exclude=.git --exclude=dist --exclude=build --exclude=sudoku-ios --exclude=__pycache__ --exclude=*.pyc --exclude=*.ipa --exclude=*.app |g' "$PBXPROJ"
+            echo "[INFO] rsync 已加 --exclude:"
+            grep -n "rsync -a" "$PBXPROJ"
+          else
+            echo "[WARN] pbxproj 里没找到 rsync 命令,跳过 patch"
+          fi
+
       - name: List available schemes
         run: |
           cd sudoku-ios
