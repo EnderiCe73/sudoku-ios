@@ -1,7 +1,10 @@
 name: Build iOS IPA
-# 触发条件:
-#   1. 手动触发(在 GitHub 仓库 Actions 页面点 "Run workflow")
-#   2. 推送 v* 开头的 tag 时自动触发(如 v1.0, v1.1-beta)
+# ============================================================
+# ⚠️ 本 workflow 严格遵循 kivy-ios 官方 CI 配置
+#    参考: https://github.com/kivy/kivy-ios/blob/master/.github/workflows/kivy_ios.yml
+#    参考: https://github.com/kivy/kivy-ios/blob/master/.ci/test_project.sh
+# ============================================================
+
 on:
   workflow_dispatch:
     inputs:
@@ -12,74 +15,81 @@ on:
   push:
     tags:
       - 'v*'
+
 jobs:
   build-ipa:
     name: Build Unsigned IPA
-    runs-on: macos-14   # Apple Silicon (M1),原生编译 iOS arm64 最快
-    timeout-minutes: 90  # 首次构建约 40-60 分钟,留足余量
+    runs-on: macos-latest
+    timeout-minutes: 90
+
     steps:
+      # ====================== 1. Checkout ======================
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
 
+      # ====================== 2. Xcode ======================
       - name: Select Xcode
         run: |
           sudo xcode-select -s /Applications/Xcode.app
           sudo xcodebuild -license accept
           xcodebuild -version
 
+      # ====================== 3. Python ======================
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
+      # ====================== 4. 依赖 (严格按 kivy-ios 官方 CI) ======================
       - name: Install Homebrew dependencies
         run: |
-          brew install pkg-config autoconf automake libtool cmake
+          brew install libjpeg
+          brew install autoconf automake libtool pkg-config
+          brew link libtool
 
-      - name: Install Cython, kivy-ios and kivy
+      - name: Install pip dependencies
         run: |
           python -m pip install --upgrade pip
-          # 必须先装 cython,kivy-ios 编译 Kivy 时需要它生成 C 扩展
-          pip install cython
+          pip install wheel
+          # ⚠️ Cython 版本必须锁定为 0.29.36 (kivy-ios 官方要求)
+          pip install Cython==0.29.36
           pip install kivy-ios kivy
 
-      - name: Cache kivy-ios build output
-        id: cache-dist
-        uses: actions/cache@v4
-        with:
-          # 缓存放 ~/kivyios-dist(绝对路径),项目里的 dist 会改成指向它的软链接
-          path: ${{ runner.os == 'macOS' && format('{0}/kivyios-dist', env.HOME) || 'dist' }}
-          key: ${{ runner.os }}-kivyios-dist-${{ hashFiles('buildozer.spec') }}-v4
-          restore-keys: |
-            ${{ runner.os }}-kivyios-dist-
-
+      # ====================== 5. 编译 Python + Kivy toolchain ======================
       - name: Build Python3 & Kivy for iOS (首次约 30-50 分钟)
         run: |
-          # 缓存命中时直接跳过;否则编译 dist/
-          if [ -d "$HOME/kivyios-dist" ] && [ ! -e dist ]; then
-            # 缓存命中但 dist 软链接还没建(上一次运行被中断的情况)
-            ln -s "$HOME/kivyios-dist" dist
-            echo "[CACHE] 已恢复 dist 软链接"
-          elif [ -d "$HOME/kivyios-dist" ] && [ -L dist ]; then
-            echo "[CACHE] 软链接已存在,跳过 toolchain build"
-          elif [ -d dist ] && [ ! -L dist ]; then
-            echo "[BUILD] 命中缓存但 dist 是物理目录,改造成软链接..."
-            mv dist "$HOME/kivyios-dist"
-            ln -s "$HOME/kivyios-dist" dist
+          set -e
+          # 缓存目录在项目外,避免被 rsync 同步进 app
+          CACHE_DIR="$HOME/kivyios-dist"
+          if [ -d "$CACHE_DIR" ]; then
+            echo "[CACHE] 找到已缓存的 kivy-ios toolchain"
+            # 重新软链接 dist -> 缓存
+            rm -rf dist
+            ln -s "$CACHE_DIR" dist
+            ls -la dist
           else
-            echo "[BUILD] 未命中缓存,运行 toolchain build python3 kivy"
+            echo "[BUILD] 首次构建,运行 toolchain build python3 kivy"
             toolchain build python3 kivy
-            # 构建完成后立即搬到项目外,rsync 不跟随 symlink 就不会拷 2GB
-            rm -rf "$HOME/kivyios-dist"
-            mv dist "$HOME/kivyios-dist"
-            ln -s "$HOME/kivyios-dist" dist
+            # 构建完成后搬到缓存目录
+            mv dist "$CACHE_DIR"
+            ln -s "$CACHE_DIR" dist
+            echo "[BUILD] 构建完成,产物已缓存"
+            du -sh "$CACHE_DIR"
           fi
           echo "--- dist 状态 ---"
           ls -la dist
-          du -sh "$HOME/kivyios-dist" 2>/dev/null || true
 
+      - name: Save toolchain cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.os == 'macOS' && format('{0}/kivyios-dist', env.HOME) || 'dist' }}
+          key: macos-kivyios-dist-${{ hashFiles('buildozer.spec') }}-v5
+          restore-keys: |
+            macos-kivyios-dist-
+
+      # ====================== 6. 字体检查 ======================
       - name: Verify font file exists
         run: |
           if [ ! -f chinese.ttf ]; then
@@ -88,203 +98,158 @@ jobs:
           fi
           ls -lh chinese.ttf
 
+      # ====================== 7. 创建 Xcode 项目 ======================
+      # ⚠️ 关键: 项目名设为 sudoku_app(与仓库名 sudoku-ios 不同,避免 rsync 递归嵌套)
+      # ⚠️ 关键: 使用绝对路径(符合 kivy-ios 官方文档要求)
       - name: Create Xcode project
         run: |
-          # toolchain create <name> <project-dir>
-          toolchain create sudoku .
-          ls -la sudoku-ios/
-          echo "--- rsync in pbxproj ---"
-          grep -n "rsync" sudoku-ios/sudoku.xcodeproj/project.pbxproj | head -5 || true
+          APP_NAME="sudoku_app"
+          WORK_DIR="$(pwd)"
+          echo "应用目录: $WORK_DIR"
+          toolchain create "$APP_NAME" "$WORK_DIR"
+          echo ""
+          echo "--- 生成的文件结构 ---"
+          ls -la "${APP_NAME}-ios/"
+          echo ""
+          echo "--- YourApp 模板内容(将被清空) ---"
+          find "${APP_NAME}-ios/YourApp" -maxdepth 3 2>/dev/null || echo "YourApp 目录不存在"
 
-      # ============================================================
-      # 🔧 修复 1: 清理 kivy-ios 模板目录 YourApp 并 patch rsync
-      # 原因: toolchain create 会生成 YourApp/ 占位模板,其中的文件在
-      # Xcode Run Script 阶段被 rsync 同步时会触发 code 24 "file vanished"
-      # 同时 rsync 也不该把 Xcode 项目自身(dist/sudoku-ios 等)同步进 app
-      # ============================================================
-      - name: Patch Xcode project — remove YourApp & fix rsync
+      # ====================== 8. 清空 YourApp 模板占位文件 ======================
+      # toolchain create 会生成 YourApp/ 模板目录,里面有 README.txt/android.txt/
+      # pictures.kv/shadow32.png 等占位文件。Run Script 里的 rsync 在同步源码时
+      # 会遇到这些"不属于你的项目"的文件,触发 code 24 (file has vanished)。
+      # 解法: 清空模板文件但保留 YourApp/ 目录本身,让 rsync 从干净状态开始。
+      - name: Clean YourApp template files
         run: |
-          # 1) 删除 kivy-ios 模板目录(里面的 README.txt/android.txt/图片等都是
-          #    脚手架占位文件,不属于你的真实项目)
-          rm -rf sudoku-ios/YourApp
-          echo "[FIX] 已删除 sudoku-ios/YourApp 模板目录"
+          APP_NAME="sudoku_app"
+          YOUR_APP_DIR="${APP_NAME}-ios/YourApp"
+          if [ -d "$YOUR_APP_DIR" ]; then
+            echo "[FIX] 清空 $YOUR_APP_DIR 里的模板占位文件"
+            find "$YOUR_APP_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            echo "[FIX] 清空完成"
+            ls -la "$YOUR_APP_DIR"
+          else
+            echo "[INFO] $YOUR_APP_DIR 不存在,跳过"
+          fi
 
-          # 2) Patch project.pbxproj 里的 Run Script rsync 命令
-          #    加上 --exclude 跳过不应被同步进 .app 的目录
-          PBXPROJ="sudoku-ios/sudoku.xcodeproj/project.pbxproj"
-
-          # 先备份
-          cp "$PBXPROJ" "${PBXPROJ}.bak"
-
-          # rsync 排除项目自身产物,避免:
-          #   a) YourApp/ 幽灵文件 code 24
-          #   b) Xcode 项目目录递归嵌套进 app 导致 self-reference
-          #   c) kivyios-dist 软链接的巨大 dist 目录
-          perl -i -pe 's|(rsync.*?)(\s*-aVa)|$1 --exclude="sudoku-ios" --exclude="dist" --exclude=".git" --exclude="kivyios-dist"$2|g' "$PBXPROJ"
-
-          echo "[FIX] 已 patch rsync --exclude 到 project.pbxproj"
-          echo "--- rsync 行验证 ---"
-          grep -n "rsync" "$PBXPROJ" | head -5
-
+      # ====================== 9. 列出 schemes ======================
       - name: List available schemes
         run: |
-          cd sudoku-ios
-          xcodebuild -project sudoku.xcodeproj -list || true
+          APP_NAME="sudoku_app"
+          cd "${APP_NAME}-ios"
+          xcodebuild -project "${APP_NAME}.xcodeproj" -list
+          cd ..
 
-      # ============================================================
-      # 🔧 修复 2: IPHONEOS_DEPLOYMENT_TARGET 从 13.0 改为 14.0
-      # 对齐 buildozer.spec 中的 ios.deploy.min_ios_version = 14.0
-      # ============================================================
-      - name: Build unsigned .app (Release, arm64)
+      # ====================== 10. 构建 (严格按 kivy-ios 官方 CI 格式) ======================
+      # 命令格式参考:
+      #   xcodebuild -project <name>-ios/<name>.xcodeproj \
+      #              -scheme <name> \
+      #              -destination generic/platform=iOS \
+      #              clean build CODE_SIGNING_ALLOWED=NO
+      # 额外参数:
+      #   - ENABLE_USER_SCRIPT_SANDBOXING=NO (Xcode 14+ 默认沙箱会阻止 Run Script)
+      #   - IPHONEOS_DEPLOYMENT_TARGET=14.0  (对齐 buildozer.spec)
+      - name: Build .app (Release, arm64 for iOS)
+        id: build
         run: |
-          cd sudoku-ios
-          # 产物保留在默认 DerivedData(kivy-ios 的 Run Script 会 rsync 源码目录,
-          # 若把产物放进项目树会递归同步自身导致 rsync code 24 失败)
-          # set -o pipefail 确保 xcodebuild 失败时能正确报错(tee 不会吞掉退出码)
-          set -o pipefail
+          set -eo pipefail
+          APP_NAME="sudoku_app"
+          cd "${APP_NAME}-ios"
+
+          # 运行前再清空一次 YourApp,确保干净状态
+          if [ -d "YourApp" ]; then
+            find YourApp -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          fi
+
           xcodebuild \
-            -project sudoku.xcodeproj \
-            -scheme sudoku \
+            -project "${APP_NAME}.xcodeproj" \
+            -scheme "${APP_NAME}" \
             -configuration Release \
-            -sdk iphoneos \
-            -arch arm64 \
+            -destination generic/platform=iOS \
             IPHONEOS_DEPLOYMENT_TARGET=14.0 \
+            ENABLE_USER_SCRIPT_SANDBOXING=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            AD_HOC_CODE_SIGNING_ALLOWED=NO \
-            build \
+            clean build \
             2>&1 | tee build.log
-          echo "---"
-          echo "Product dir from build settings:"
-          xcodebuild -project sudoku.xcodeproj -scheme sudoku -configuration Release -sdk iphoneos -showBuildSettings 2>/dev/null | grep -E "BUILT_PRODUCTS_DIR|TARGET_BUILD_DIR" || true
 
+          echo "--- Build exit code: ${PIPESTATUS[0]} ---"
+          cd ..
+
+      # ====================== 11. 定位 .app 产物 ======================
       - name: Locate .app bundle
         id: locate
         run: |
-          # 1) 从 xcodebuild 构建设置直接获取产物目录(最可靠)
-          BUILT_DIR=$(cd sudoku-ios && xcodebuild -project sudoku.xcodeproj -scheme sudoku -configuration Release -sdk iphoneos -showBuildSettings 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3; exit}')
+          APP_NAME="sudoku_app"
+          # 1) 从 xcodebuild 构建设置获取产物目录
+          cd "${APP_NAME}-ios"
+          BUILT_DIR=$(xcodebuild \
+            -project "${APP_NAME}.xcodeproj" \
+            -scheme "${APP_NAME}" \
+            -configuration Release \
+            -destination generic/platform=iOS \
+            -showBuildSettings 2>/dev/null | \
+            awk '/ BUILT_PRODUCTS_DIR/{print $3; exit}')
+          cd ..
+
           APP_PATH=""
-          if [ -n "$BUILT_DIR" ] && [ -d "$BUILT_DIR/sudoku.app" ]; then
-            APP_PATH="$BUILT_DIR/sudoku.app"
+          if [ -n "$BUILT_DIR" ] && [ -d "$BUILT_DIR/${APP_NAME}.app" ]; then
+            APP_PATH="$BUILT_DIR/${APP_NAME}.app"
+            echo "[OK] 从 BUILT_PRODUCTS_DIR 定位到: $APP_PATH"
           fi
+
           # 2) 兜底: 搜索 DerivedData
           if [ -z "$APP_PATH" ]; then
-            echo "[WARN] showBuildSettings 未定位到,搜索 DerivedData..."
-            APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -name "sudoku.app" -type d -maxdepth 8 2>/dev/null | head -1)
+            echo "[WARN] 构建设置未返回,搜索 DerivedData..."
+            APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
+              -name "${APP_NAME}.app" -type d -maxdepth 10 2>/dev/null | head -1)
           fi
+
           # 3) 最后兜底: 搜索项目目录
           if [ -z "$APP_PATH" ]; then
             echo "[WARN] DerivedData 也未找到,搜索项目目录..."
-            APP_PATH=$(find sudoku-ios -name "sudoku.app" -type d 2>/dev/null | head -1)
+            APP_PATH=$(find "${APP_NAME}-ios" \
+              -name "${APP_NAME}.app" -type d 2>/dev/null | head -1)
           fi
+
           if [ -z "$APP_PATH" ]; then
-            echo "::error::未找到 sudoku.app 产物,请下载 build-log artifact 查看详细报错"
+            echo "::error::未找到 ${APP_NAME}.app,请下载 build-log artifact 查看"
             exit 1
           fi
-          echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
-          echo "Found: $APP_PATH"
 
+          echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
+          echo "[OK] 最终定位到: $APP_PATH"
+          ls -la "$APP_PATH"
+
+      # ====================== 12. 打包 IPA ======================
       - name: Package unsigned IPA
         run: |
           APP_PATH="${{ steps.locate.outputs.app_path }}"
+          APP_NAME="sudoku_app"
           STAGE=$(mktemp -d)
           mkdir -p "$STAGE/Payload"
           cp -R "$APP_PATH" "$STAGE/Payload/"
           cd "$STAGE"
-          # 用 -0 (store, 不压缩) 避免 iOS 对 IPA 内文件压缩的限制问题
-          zip -qry "${{ github.workspace }}/sudoku-unsigned.ipa" Payload
+          # -0 = store (不压缩),iOS 对 IPA 压缩有限制
+          zip -qry "${{ github.workspace }}/${APP_NAME}-unsigned.ipa" Payload
           cd "${{ github.workspace }}"
-          ls -lh sudoku-unsigned.ipa
+          ls -lh "${APP_NAME}-unsigned.ipa"
 
+      # ====================== 13. 上传产物 ======================
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: sudoku-unsigned-ipa
-          path: sudoku-unsigned.ipa
+          path: sudoku_app-unsigned.ipa
           retention-days: 30
           if-no-files-found: error
 
-      - name: Upload build log (for debugging)
+      - name: Upload build log (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: sudoku-ios/build.log
+          path: sudoku_app-ios/build.log
           retention-days: 7
           if-no-files-found: ignore
-
-      - name: Upload patched pbxproj (for debugging)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: patched-pbxproj
-          path: sudoku-ios/sudoku.xcodeproj/project.pbxproj
-          retention-days: 7
-          if-no-files-found: ignore
-
-  # ============================================================
-  # 可选:自动签名模式(需配置 Secrets)
-  # 启用方式:取消下方注释,并在仓库 Settings → Secrets 配置:
-  #   APPLE_CERT_BASE64        - 开发者证书 .p12 的 base64 编码
-  #   APPLE_CERT_PASSWORD       - 证书密码
-  #   APPLE_PROVISION_BASE64    - provisioning profile 的 base64 编码
-  #   APPLE_TEAM_ID             - Team ID(10 位字母数字)
-  # 注意:免费 Apple ID 证书有效期仅 7 天,需定期更新
-  # ============================================================
-  # sign-ipa:
-  #   needs: build-ipa
-  #   if: ${{ vars.ENABLE_AUTO_SIGN == 'true' }}
-  #   runs-on: macos-14
-  #   steps:
-  #     - name: Download unsigned IPA
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         name: sudoku-unsigned-ipa
-  #
-  #     - name: Import signing certificate
-  #       env:
-  #         APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
-  #         APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-  #       run: |
-  #         echo "$APPLE_CERT_BASE64" | base64 -d > cert.p12
-  #         security create-keychain -p "" build.keychain
-  #         security import cert.p12 -k build.keychain -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
-  #         security set-partition-list -S apple-tool:,apple: -s -k "" build.keychain
-  #
-  #     - name: Import provisioning profile
-  #       env:
-  #         APPLE_PROVISION_BASE64: ${{ secrets.APPLE_PROVISION_BASE64 }}
-  #       run: |
-  #         echo "$APPLE_PROVISION_BASE64" | base64 -d > embedded.mobileprovision
-  #
-  #     - name: Resign IPA
-  #       env:
-  #         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-  #       run: |
-  #         unzip -q sudoku-unsigned.ipa -d stage
-  #         cp embedded.mobileprovision stage/Payload/sudoku.app/
-  #         # 生成最小 entitlements
-  #         cat > entitlements.plist <<EOF
-  #         <?xml version="1.0" encoding="UTF-8"?>
-  #         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-  #         <plist version="1.0">
-  #         <dict>
-  #           <key>get-task-allow</key>
-  #           <true/>
-  #           <key>application-identifier</key>
-  #           <string>${APPLE_TEAM_ID}.org.local.sudoku</string>
-  #         </dict>
-  #         </plist>
-  #         EOF
-  #         CERT_ID="Apple Development: $APPLE_TEAM_ID"
-  #         codesign -f -s "$CERT_ID" --entitlements entitlements.plist stage/Payload/sudoku.app
-  #         cd stage && zip -qry ../sudoku-signed.ipa Payload
-  #
-  #     - name: Upload signed IPA
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: sudoku-signed-ipa
-  #         path: sudoku-signed.ipa
-  #         retention-days: 7
