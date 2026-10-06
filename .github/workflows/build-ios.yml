@@ -165,11 +165,11 @@ jobs:
       # 额外参数:
       #   - ENABLE_USER_SCRIPT_SANDBOXING=NO (Xcode 14+ 默认沙箱会阻止 Run Script)
       #   - IPHONEOS_DEPLOYMENT_TARGET=14.0  (对齐 buildozer.spec)
-      # ====================== 10. Patch pbxproj —— 让 Run Script 里的 compileall 容忍错误 ======================
+      # ====================== 10. Patch pbxproj —— 让 Run Script 里的 compileall 不致命 ======================
       # kivy-ios 生成的 Run Script 会对 dist/ 下所有 .py 执行 python3 -m compileall
-      # 即使已经删了 Lib/test,仍有极少量边缘文件可能触发 SyntaxError
-      # 最稳妥的做法:给 compileall 命令加 || true,让脚本不因编译警告退出
-      - name: Patch Run Script — compileall 忽略错误
+      # 即使删了 Lib/test,仍有边缘文件可能触发 SyntaxError。
+      # 最简方案:用 sed 把 compileall 整行注释掉(CPython 已由 toolchain 编译好,.pyc 运行时不需要)
+      - name: Patch Run Script — 禁用 compileall
         run: |
           APP_NAME="sudoku_app"
           PBXPROJ="${APP_NAME}-ios/${APP_NAME}.xcodeproj/project.pbxproj"
@@ -177,22 +177,21 @@ jobs:
             echo "::error::找不到 $PBXPROJ"
             exit 1
           fi
-          echo "[FIX] Patch $PBXPROJ 里的 compileall 命令"
-          # 先备份
+
+          echo "[FIX] 禁用 pbxproj Run Script 里的 compileall 命令"
           cp "$PBXPROJ" "${PBXPROJ}.bak"
 
-          # 查看 patch 前的 compileall 行
           echo "--- patch 前 compileall 行 ---"
-          grep -n "compileall" "$PBXPROJ" || echo "未找到 compileall 关键字"
+          grep -n "compileall" "$PBXPROJ" || echo "(未找到 compileall,可能无需 patch)"
 
-          # 在所有 python3 -m compileall ... 行末尾追加 || true (如果还没有的话)
-          # pbxproj 里 Run Script 是转义后的多行文本(带 \n),所以用 perl 处理
-          perl -i -pe 's|(python3?\s+-m\s+compileall[^;\n]*)(?<!\|\|\s*true)(?=\s*\\?n|\s*;|\s*$)|$1 || true|g' "$PBXPROJ"
+          # 最简方案:把 "python3 -m compileall" 替换成 "echo COMPILEALL_SKIPPED"
+          # 这样即使后面还有参数(如 -q 或目录路径),echo 也会原样输出并返回 0
+          # perl -i -pe 比 sed 更可靠处理含引号/特殊字符的内容
+          perl -i -pe 's|python3\?\s+-m\s+compileall|echo "COMPILEALL_SKIPPED"|g' "$PBXPROJ"
 
-          echo "--- patch 后 compileall 行 ---"
-          grep -n "compileall" "$PBXPROJ" || echo "未找到"
+          echo "--- patch 后验证 ---"
+          grep -n "COMPILEALL_SKIPPED" "$PBXPROJ" && echo "[OK] patch 成功" || echo "(未找到 COMPILEALL_SKIPPED,可能原本就没有 compileall)"
 
-          # 验证 pbxproj 文件未损坏(至少应能被 plutil 解析)
           echo "--- pbxproj 大小 ---"
           wc -c "$PBXPROJ"
 
