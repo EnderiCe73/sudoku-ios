@@ -1,5 +1,4 @@
 name: Build iOS IPA
-
 # 触发条件:
 #   1. 手动触发(在 GitHub 仓库 Actions 页面点 "Run workflow")
 #   2. 推送 v* 开头的 tag 时自动触发(如 v1.0, v1.1-beta)
@@ -13,13 +12,11 @@ on:
   push:
     tags:
       - 'v*'
-
 jobs:
   build-ipa:
     name: Build Unsigned IPA
     runs-on: macos-14   # Apple Silicon (M1),原生编译 iOS arm64 最快
     timeout-minutes: 90  # 首次构建约 40-60 分钟,留足余量
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -96,15 +93,48 @@ jobs:
           # toolchain create <name> <project-dir>
           toolchain create sudoku .
           ls -la sudoku-ios/
-          # 打印 rsync 命令格式(排查用)
           echo "--- rsync in pbxproj ---"
           grep -n "rsync" sudoku-ios/sudoku.xcodeproj/project.pbxproj | head -5 || true
+
+      # ============================================================
+      # 🔧 修复 1: 清理 kivy-ios 模板目录 YourApp 并 patch rsync
+      # 原因: toolchain create 会生成 YourApp/ 占位模板,其中的文件在
+      # Xcode Run Script 阶段被 rsync 同步时会触发 code 24 "file vanished"
+      # 同时 rsync 也不该把 Xcode 项目自身(dist/sudoku-ios 等)同步进 app
+      # ============================================================
+      - name: Patch Xcode project — remove YourApp & fix rsync
+        run: |
+          # 1) 删除 kivy-ios 模板目录(里面的 README.txt/android.txt/图片等都是
+          #    脚手架占位文件,不属于你的真实项目)
+          rm -rf sudoku-ios/YourApp
+          echo "[FIX] 已删除 sudoku-ios/YourApp 模板目录"
+
+          # 2) Patch project.pbxproj 里的 Run Script rsync 命令
+          #    加上 --exclude 跳过不应被同步进 .app 的目录
+          PBXPROJ="sudoku-ios/sudoku.xcodeproj/project.pbxproj"
+
+          # 先备份
+          cp "$PBXPROJ" "${PBXPROJ}.bak"
+
+          # rsync 排除项目自身产物,避免:
+          #   a) YourApp/ 幽灵文件 code 24
+          #   b) Xcode 项目目录递归嵌套进 app 导致 self-reference
+          #   c) kivyios-dist 软链接的巨大 dist 目录
+          perl -i -pe 's|(rsync.*?)(\s*-aVa)|$1 --exclude="sudoku-ios" --exclude="dist" --exclude=".git" --exclude="kivyios-dist"$2|g' "$PBXPROJ"
+
+          echo "[FIX] 已 patch rsync --exclude 到 project.pbxproj"
+          echo "--- rsync 行验证 ---"
+          grep -n "rsync" "$PBXPROJ" | head -5
 
       - name: List available schemes
         run: |
           cd sudoku-ios
           xcodebuild -project sudoku.xcodeproj -list || true
 
+      # ============================================================
+      # 🔧 修复 2: IPHONEOS_DEPLOYMENT_TARGET 从 13.0 改为 14.0
+      # 对齐 buildozer.spec 中的 ios.deploy.min_ios_version = 14.0
+      # ============================================================
       - name: Build unsigned .app (Release, arm64)
         run: |
           cd sudoku-ios
@@ -118,7 +148,7 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -arch arm64 \
-            IPHONEOS_DEPLOYMENT_TARGET=13.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=14.0 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -126,7 +156,6 @@ jobs:
             AD_HOC_CODE_SIGNING_ALLOWED=NO \
             build \
             2>&1 | tee build.log
-
           echo "---"
           echo "Product dir from build settings:"
           xcodebuild -project sudoku.xcodeproj -scheme sudoku -configuration Release -sdk iphoneos -showBuildSettings 2>/dev/null | grep -E "BUILT_PRODUCTS_DIR|TARGET_BUILD_DIR" || true
@@ -183,6 +212,15 @@ jobs:
         with:
           name: build-log
           path: sudoku-ios/build.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload patched pbxproj (for debugging)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-pbxproj
+          path: sudoku-ios/sudoku.xcodeproj/project.pbxproj
           retention-days: 7
           if-no-files-found: ignore
 
