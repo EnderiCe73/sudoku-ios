@@ -1,4 +1,7 @@
 # main.py (界面层)
+Config.set('graphics', 'width', '420')
+Config.set('graphics', 'height', '680')
+Config.set('graphics', 'resizable', '1')
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
@@ -16,9 +19,6 @@ import os
 import sys
 
 # 界面设置
-Config.set('graphics', 'width', '420')
-Config.set('graphics', 'height', '680')
-Config.set('graphics', 'resizable', '1')
 Window.clearcolor = (0.96, 0.94, 0.88, 1)
 
 # iOS 平台不存在 SimHei,改用随包打包的中文字体
