@@ -1,0 +1,66 @@
+run: 16
+commit: 925a5282d2ccf0bedd3721f79ec53a0d7d7c35d0
+
+=== .app 顶层目录 ===
+4.0K	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/Info.plist
+4.0K	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/PkgInfo
+ 12K	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/Launch Screen.storyboardc
+ 20K	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/icon.png
+ 12M	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/lib
+ 17M	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/sudoku_app
+1.0G	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp
+
+=== .app 内最大的 40 个文件 ===
+25.4 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/.cache/python3-Python-3.11.6.tgz
+25.4 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/.cache/hostpython3-Python-3.11.6.tgz
+23.3 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/.cache/kivy-2.3.1.zip
+17.2 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/sudoku_app
+12.6 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/.cache/sdl2_ttf-SDL2_ttf-2.20.2.tar.gz
+10.8 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/.cache/sdl2_image-SDL2_image-2.8.0.tar.gz
+9.5 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/.cache/sdl2_mixer-SDL2_mixer-2.6.3.tar.gz
+9.4 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/.cache/openssl-openssl-1.1.1w.tar.gz
+9.4 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/.cache/hostopenssl-openssl-1.1.1w.tar.gz
+8.1 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/python3/iphonesimulator-arm64/Python-3.11.6/Programs/_testembed
+8.0 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/python3/iphonesimulator-arm64/Python-3.11.6/python.exe
+8.0 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/python3/iphoneos-arm64/Python-3.11.6/Programs/_testembed
+8.0 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/python3/iphoneos-arm64/Python-3.11.6/python.exe
+7.9 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/sdl2_ttf/iphonesimulator-arm64/SDL2_ttf-2.20.2/Xcode/iOS/SDL2.framework/SDL2
+7.9 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/sdl2_ttf/iphoneos-arm64/SDL2_ttf-2.20.2/Xcode/iOS/SDL2.framework/SDL2
+7.9 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/sdl2_mixer/iphonesimulator-arm64/SDL2_mixer-2.6.3/Xcode/iOS/SDL2.framework/SDL2
+7.9 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/sdl2_mixer/iphoneos-arm64/SDL2_mixer-2.6.3/Xcode/iOS/SDL2.framework/SDL2
+7.9 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/sdl2_image/iphonesimulator-arm64/SDL2_image-2.8.0/Xcode/iOS/SDL2.framework/SDL2
+7.9 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/sdl2_image/iphoneos-arm64/SDL2_image-2.8.0/Xcode/iOS/SDL2.framework/SDL2
+7.9 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/openssl/iphonesimulator-arm64/openssl-1.1.1w/test/drbg_cavs_data.c
+7.9 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/openssl/iphoneos-arm64/openssl-1.1.1w/test/drbg_cavs_data.c
+7.9 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/hostopenssl/macosx-arm64/openssl-1.1.1w/test/drbg_cavs_data.c
+7.0 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/.cache/sdl2-SDL2-2.28.5.tar.gz
+5.2 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/python3/iphonesimulator-arm64/Python-3.11.6/Python/deepfreeze/deepfreeze.c
+5.2 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/python3/iphoneos-arm64/Python-3.11.6/Python/deepfreeze/deepfreeze.c
+5.2 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/hostpython3/macosx-arm64/Python-3.11.6/native-build/Python/deepfreeze/deepfreeze.c
+4.8 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/lib/python311.zip
+4.5 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/kivy/iphonesimulator-arm64/kivy-2.3.1/kivy/graphics/vertex_instructions.c
+4.5 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/kivy/iphoneos-arm64/kivy-2.3.1/kivy/graphics/vertex_instructions.c
+4.4 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/hostpython3/macosx-arm64/Python-3.11.6/native-build/Programs/_testembed
+4.4 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/hostpython3/macosx-arm64/Python-3.11.6/native-build/python.exe
+4.4 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/kivy/iphonesimulator-arm64/kivy-2.3.1/examples/widgets/cityCC0.mpg
+4.4 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/kivy/iphoneos-arm64/kivy-2.3.1/examples/widgets/cityCC0.mpg
+4.1 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/python3/iphonesimulator-arm64/Python-3.11.6/Misc/svnmap.txt
+4.1 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/python3/iphoneos-arm64/Python-3.11.6/Misc/svnmap.txt
+4.1 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/hostpython3/macosx-arm64/Python-3.11.6/Misc/svnmap.txt
+4.0 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/sdl2_ttf/iphonesimulator-arm64/SDL2_ttf-2.20.2/Xcode/tvOS/SDL2.framework/SDL2
+4.0 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/sdl2_ttf/iphoneos-arm64/SDL2_ttf-2.20.2/Xcode/tvOS/SDL2.framework/SDL2
+4.0 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/sdl2_mixer/iphonesimulator-arm64/SDL2_mixer-2.6.3/Xcode/tvOS/SDL2.framework/SDL2
+4.0 MB	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app/YourApp/build/sdl2_mixer/iphoneos-arm64/SDL2_mixer-2.6.3/Xcode/tvOS/SDL2.framework/SDL2
+
+=== .app 总体积 ===
+1.0G	/Users/runner/Library/Developer/Xcode/DerivedData/sudoku_app-dzvsntwltiihljdzlsypbyvdewgc/Build/Products/Release-iphoneos/sudoku_app.app
+
+=== dist 顶层 ===
+  0B	/Users/runner/kivyios-dist/frameworks
+ 16K	/Users/runner/kivyios-dist/state.db
+6.4M	/Users/runner/kivyios-dist/hostopenssl
+6.9M	/Users/runner/kivyios-dist/include
+ 32M	/Users/runner/kivyios-dist/root
+113M	/Users/runner/kivyios-dist/lib
+113M	/Users/runner/kivyios-dist/xcframework
+310M	/Users/runner/kivyios-dist/hostpython3
