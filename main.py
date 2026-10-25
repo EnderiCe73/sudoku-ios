@@ -1,333 +1,378 @@
-# main.py (界面层)
-Config.set('graphics', 'width', '420')
-Config.set('graphics', 'height', '680')
-Config.set('graphics', 'resizable', '1')
-from kivy.app import App
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.button import Button
-from kivy.uix.label import Label
-from kivy.uix.dropdown import DropDown
-from kivy.core.window import Window
-from kivy.uix.popup import Popup
-from kivy.uix.modalview import ModalView  # 使用 ModalView 彻底摆脱色块
-from kivy.clock import Clock
-from kivy.graphics import Color, Rectangle
-from kivy.config import Config
-from sudoku_core import SudokuGame
+"""复古数独 —— Kivy 界面层。
+
+界面只负责渲染与交互，规则与状态全部位于 sudoku_core。
+"""
+
 import os
-import sys
 
-# 界面设置
-Window.clearcolor = (0.96, 0.94, 0.88, 1)
+from kivy.config import Config
 
-# iOS 平台不存在 SimHei,改用随包打包的中文字体
-if 'ios' in sys.platform:
-    COMMON_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chinese.ttf')
-else:
-    COMMON_FONT = 'SimHei'
+# Kivy 要求在导入 Window 之前完成图形配置，因此这两步必须在其他 kivy 导入之前。
+Config.set("graphics", "width", "420")
+Config.set("graphics", "height", "680")
+Config.set("graphics", "resizable", "1")
 
-# 高亮颜色配置
-HIGHLIGHT_CELL_COLOR = (0.85, 0.92, 0.80, 1)     # 联动/十字高亮浅绿
-HIGHLIGHT_SELECTED_COLOR = (0.70, 0.82, 0.65, 1) # 当前选中格子深绿
+from kivy.app import App  # noqa: E402
+from kivy.clock import Clock  # noqa: E402
+from kivy.core.window import Window  # noqa: E402
+from kivy.graphics import Color, Rectangle  # noqa: E402
+from kivy.uix.boxlayout import BoxLayout  # noqa: E402
+from kivy.uix.button import Button  # noqa: E402
+from kivy.uix.dropdown import DropDown  # noqa: E402
+from kivy.uix.gridlayout import GridLayout  # noqa: E402
+from kivy.uix.label import Label  # noqa: E402
+from kivy.uix.modalview import ModalView  # noqa: E402
+
+from sudoku_core import SudokuGame  # noqa: E402
+
+# ---------------- 配色 ----------------
+BG_COLOR = (0.96, 0.94, 0.88, 1)
+GRID_BG_COLOR = (0.90, 0.88, 0.82, 1)
+CELL_COLOR = (1.00, 1.00, 1.00, 1)
+CELL_COLOR_ALT = (0.94, 0.92, 0.88, 1)
+HIGHLIGHT_COLOR = (0.85, 0.92, 0.80, 1)
+SELECTED_COLOR = (0.70, 0.82, 0.65, 1)
+ERROR_COLOR = (0.90, 0.60, 0.60, 1)
+TEXT_GIVEN_COLOR = (0.15, 0.10, 0.05, 1)
+TEXT_INPUT_COLOR = (0.20, 0.30, 0.50, 1)
+TEXT_LIGHT_COLOR = (0.95, 0.93, 0.87, 1)
+
+KEYPAD_COLOR = (0.35, 0.33, 0.30, 1)
+CONTROL_COLOR = (0.85, 0.82, 0.75, 1)
+CONTROL_TEXT_COLOR = (0.20, 0.15, 0.10, 1)
+
+# ---------------- 字体 ----------------
+# iOS/Android 没有 SimHei，统一使用随包字体；桌面端同样可用。
+FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chinese.ttf")
+COMMON_FONT = FONT_PATH if os.path.exists(FONT_PATH) else "Roboto"
+
+# ---------------- 格子状态 ----------------
+STATE_NORMAL = "normal"
+STATE_HIGHLIGHT = "highlight"
+STATE_SELECTED = "selected"
+
+Window.clearcolor = BG_COLOR
+
 
 class SudokuCell(Button):
-    def __init__(self, row, col, block_bg=(1,1,1,1), **kwargs):
-        super().__init__(**kwargs)
-        self.row, self.col = row, col
-        self.is_original = False
+    """单个格子：颜色由 is_error 与 state 唯一决定。"""
+
+    def __init__(self, row, col, value=0, block_bg=CELL_COLOR, **kwargs):
+        super().__init__(text=str(value) if value else "", **kwargs)
+        self.row = row
+        self.col = col
+        self.is_original = value != 0
         self.is_error = False
-        self.background_normal = ''
+        self.state = STATE_NORMAL
+        self.block_bg = block_bg
+        self.background_normal = ""
         self.font_size = 28
         self.bold = True
         self.font_name = COMMON_FONT
-        
-        self.block_bg = block_bg
-        self.normal_background_color = block_bg
-        self.normal_text_color = (0.2, 0.3, 0.5, 1)
-        self._update_appearance()
-    
-    def _update_appearance(self):
-        self.normal_background_color = self.block_bg
-        self.background_color = self.normal_background_color
-        
-        if self.is_original:
-            self.normal_text_color = (0.15, 0.1, 0.05, 1)
+        self.refresh()
+
+    def refresh(self):
+        """按当前状态刷新底色与文字色。"""
+        if self.state == STATE_SELECTED:
+            self.background_color = SELECTED_COLOR
+        elif self.is_error:
+            self.background_color = ERROR_COLOR
+        elif self.state == STATE_HIGHLIGHT:
+            self.background_color = HIGHLIGHT_COLOR
         else:
-            self.normal_text_color = (0.2, 0.3, 0.5, 1)
-        self.color = self.normal_text_color
+            self.background_color = self.block_bg
+        self.color = TEXT_GIVEN_COLOR if self.is_original else TEXT_INPUT_COLOR
+
+    def set_state(self, state):
+        self.state = state
+        self.refresh()
 
     def reset_highlight(self):
-        if self.is_error:
-            self.background_color = (0.9, 0.6, 0.6, 1)
-        else:
-            self.background_color = self.normal_background_color
+        self.set_state(STATE_NORMAL)
 
 
 class TypewriterButton(Button):
+    """数字键盘按键。"""
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.background_normal = ''
-        self.background_color = (0.35, 0.33, 0.3, 1)
-        self.color = (0.95, 0.93, 0.87, 1)
+        self.background_normal = ""
+        self.background_color = KEYPAD_COLOR
+        self.color = TEXT_LIGHT_COLOR
         self.font_size = 24
         self.bold = True
         self.font_name = COMMON_FONT
 
 
 class VintageButton(Button):
+    """功能按钮（擦除 / 难度 / 新游戏 / 继续）。"""
+
     def __init__(self, **kwargs):
+        font_size = kwargs.pop("font_size", 16)
         super().__init__(**kwargs)
-        self.background_normal = ''
-        self.background_color = (0.85, 0.82, 0.75, 1)
-        self.color = (0.2, 0.15, 0.1, 1)
-        self.font_size = kwargs.get('font_size', 16)
+        self.background_normal = ""
+        self.background_color = CONTROL_COLOR
+        self.color = CONTROL_TEXT_COLOR
+        self.font_size = font_size
         self.bold = True
         self.font_name = COMMON_FONT
 
 
 class SudokuApp(App):
+    title = "复古数独"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.game = SudokuGame('easy')
+        self.game = SudokuGame("easy")
         self.cells = {}
         self.selected_cell = None
         self.game_locked = False
-        
-        # 🛠️ 隐藏调试模式：绑定键盘监听
-        Window.bind(on_keyboard=self.on_keyboard)
-    
+        self._dropdown = None
+        self._win_modal = None
+
+    # ---------------- 构建界面 ----------------
     def build(self):
-        self.title = '复古数独'
-        self.main_layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
-        
-        with self.main_layout.canvas.before:
-            Color(0.96, 0.94, 0.88, 1)
-            self.bg_rect = Rectangle(pos=self.main_layout.pos, size=self.main_layout.size)
-        self.main_layout.bind(pos=self._update_bg, size=self._update_bg)
-        
-        title = Label(text='数 独', font_size=32, bold=True, color=(0.2, 0.15, 0.1, 1), size_hint=(1, 0.1), font_name=COMMON_FONT)
-        self.main_layout.add_widget(title)
-        
-        grid_container = BoxLayout(orientation='vertical', size_hint=(1, 0.55), padding=10)
-        with grid_container.canvas.before:
-            Color(0.9, 0.88, 0.82, 1)
-            self.grid_bg_rect = Rectangle(pos=grid_container.pos, size=grid_container.size)
-        grid_container.bind(pos=self._update_grid_bg, size=self._update_grid_bg)
-        
+        root = BoxLayout(orientation="vertical", padding=15, spacing=10)
+        self._paint_background(root, BG_COLOR)
+
+        root.add_widget(
+            Label(
+                text="数 独",
+                font_size=32,
+                bold=True,
+                color=TEXT_GIVEN_COLOR,
+                size_hint=(1, 0.1),
+                font_name=COMMON_FONT,
+            )
+        )
+
+        grid_container = BoxLayout(
+            orientation="vertical", size_hint=(1, 0.55), padding=10
+        )
+        self._paint_background(grid_container, GRID_BG_COLOR)
         self.grid_layout = GridLayout(cols=9, spacing=2, padding=5)
         self.create_grid()
         grid_container.add_widget(self.grid_layout)
-        
-        self.main_layout.add_widget(grid_container)
-        
-        keyboard_layout = BoxLayout(orientation='horizontal', spacing=8, padding=(10, 5), size_hint=(1, 0.12))
-        for num in range(1, 10):
-            btn = TypewriterButton(text=str(num))
-            btn.number = num
-            btn.bind(on_release=self.number_pressed)
-            keyboard_layout.add_widget(btn)
-        self.main_layout.add_widget(keyboard_layout)
-        
-        control_layout = BoxLayout(orientation='horizontal', spacing=10, padding=(10, 5), size_hint=(1, 0.1))
-        erase_btn = VintageButton(text='擦 除', on_release=self.erase_cell)
-        control_layout.add_widget(erase_btn)
-        
-        self.difficulty_btn = VintageButton(text='难度: 简单', on_release=self.show_difficulty_menu)
-        control_layout.add_widget(self.difficulty_btn)
-        
-        new_game_btn = VintageButton(text='新游戏', on_release=self.new_game)
-        control_layout.add_widget(new_game_btn)
-        
-        self.main_layout.add_widget(control_layout)
-        return self.main_layout
-    
-    def _update_bg(self, instance, value):
-        self.bg_rect.pos = instance.pos
-        self.bg_rect.size = instance.size
+        root.add_widget(grid_container)
 
-    def _update_grid_bg(self, instance, value):
-        self.grid_bg_rect.pos = instance.pos
-        self.grid_bg_rect.size = instance.size
+        keypad = BoxLayout(
+            orientation="horizontal",
+            spacing=8,
+            padding=(10, 5),
+            size_hint=(1, 0.12),
+        )
+        for num in range(1, 10):
+            key = TypewriterButton(text=str(num))
+            key.number = num
+            key.bind(on_release=self.number_pressed)
+            keypad.add_widget(key)
+        root.add_widget(keypad)
+
+        controls = BoxLayout(
+            orientation="horizontal",
+            spacing=10,
+            padding=(10, 5),
+            size_hint=(1, 0.1),
+        )
+        controls.add_widget(VintageButton(text="擦 除", on_release=self.erase_cell))
+        self.difficulty_btn = VintageButton(
+            text="难度: 简单", on_release=self.show_difficulty_menu
+        )
+        controls.add_widget(self.difficulty_btn)
+        controls.add_widget(VintageButton(text="新游戏", on_release=self.new_game))
+        root.add_widget(controls)
+        return root
+
+    @staticmethod
+    def _paint_background(widget, rgba):
+        """给容器铺底色，并跟随容器尺寸变化。"""
+        with widget.canvas.before:
+            Color(*rgba)
+            rect = Rectangle(pos=widget.pos, size=widget.size)
+
+        def sync(instance, _value):
+            rect.pos = instance.pos
+            rect.size = instance.size
+
+        widget.bind(pos=sync, size=sync)
+
+    # ---------------- 棋盘 ----------------
+    def create_grid(self):
+        self.selected_cell = None
+        self.grid_layout.clear_widgets()
+        self.cells.clear()
+        for row in range(9):
+            for col in range(9):
+                block_bg = (
+                    CELL_COLOR_ALT if (row // 3 + col // 3) % 2 else CELL_COLOR
+                )
+                cell = SudokuCell(row, col, self.game.puzzle[row][col], block_bg)
+                cell.bind(on_release=self.cell_pressed)
+                self.cells[(row, col)] = cell
+                self.grid_layout.add_widget(cell)
 
     def reset_highlights(self):
         for cell in self.cells.values():
             cell.reset_highlight()
 
     def highlight_matching_numbers(self, num):
+        text = str(num)
         for cell in self.cells.values():
-            if cell.is_error:
-                continue  # 错误红不被同数高亮盖掉
-            if cell.text == str(num) and cell.text != "":
-                cell.background_color = HIGHLIGHT_CELL_COLOR
+            if not cell.is_error and cell.text == text:
+                cell.set_state(STATE_HIGHLIGHT)
 
-    def create_grid(self):
-        self.grid_layout.clear_widgets(); self.cells.clear()
-        for i in range(9):
-            for j in range(9):
-                bg_color = (1.0, 1.0, 1.0, 1)
-                # 定义九宫格底色
-                if 0 <= i <= 2 and 3 <= j <= 5:
-                    bg_color = (0.94, 0.92, 0.88, 1)
-                elif 3 <= i <= 5 and (0 <= j <= 2 or 6 <= j <= 8):
-                    bg_color = (0.94, 0.92, 0.88, 1)
-                elif 6 <= i <= 8 and 3 <= j <= 5:
-                    bg_color = (0.94, 0.92, 0.88, 1)
-                
-                cell = SudokuCell(row=i, col=j, block_bg=bg_color)
-                if self.game.original_puzzle[i][j] != 0:
-                    cell.text = str(self.game.original_puzzle[i][j])
-                    cell.is_original = True
-                
-                cell._update_appearance()
-                cell.bind(on_release=self.cell_pressed)
-                self.grid_layout.add_widget(cell)
-                self.cells[(i, j)] = cell
-    
-    def cell_pressed(self, instance):
-        if self.game_locked: return
-        
-        if self.selected_cell == instance:
+    # ---------------- 交互 ----------------
+    def cell_pressed(self, cell):
+        if self.game_locked:
+            return
+
+        if self.selected_cell is cell:
             self.selected_cell = None
             self.reset_highlights()
             return
 
         self.reset_highlights()
-        
-        row, col = instance.row, instance.col
+        row, col = cell.row, cell.col
         start_row, start_col = 3 * (row // 3), 3 * (col // 3)
-        for (r, c), cell in self.cells.items():
-            if cell.is_error:
-                continue  # 错误红不被联动高亮盖掉
-            if (r == row) or (c == col) or (start_row <= r < start_row+3 and start_col <= c < start_col+3):
-                cell.background_color = HIGHLIGHT_CELL_COLOR
+        for (r, c), other in self.cells.items():
+            if other.is_error:
+                continue
+            in_block = (
+                start_row <= r < start_row + 3 and start_col <= c < start_col + 3
+            )
+            if r == row or c == col or in_block:
+                other.set_state(STATE_HIGHLIGHT)
 
-        instance.background_color = HIGHLIGHT_SELECTED_COLOR
-        self.selected_cell = instance
-    
-    def number_pressed(self, instance):
-        if self.game_locked: return
-        
-        num = instance.number
-        
+        cell.set_state(STATE_SELECTED)
+        self.selected_cell = cell
+
+    def number_pressed(self, button):
+        if self.game_locked:
+            return
+        num = button.number
+
         self.reset_highlights()
         self.highlight_matching_numbers(num)
-        
-        if not self.selected_cell or self.selected_cell.is_original:
-            if self.game.check_win(): 
-                self.game_locked = True
-                Clock.schedule_once(lambda dt: self.show_win_message(), 0.5)
+
+        cell = self.selected_cell
+        if cell is None or cell.is_original:
             return
-            
-        self.selected_cell.background_color = HIGHLIGHT_SELECTED_COLOR
-        
-        row, col = self.selected_cell.row, self.selected_cell.col
-        
-        if self.selected_cell.text == str(num):
-            self.selected_cell.text = ''; self.game.board[row][col] = 0
-            self.selected_cell.is_error = False
-            self.selected_cell._update_appearance()
+
+        row, col = cell.row, cell.col
+
+        # 再按一次相同数字 = 清除
+        if cell.text == str(num):
+            self._clear_cell(cell)
+            cell.set_state(STATE_SELECTED)
             return
-        
+
         if self.game.is_valid_move(row, col, num):
-            self.selected_cell.is_error = False
-            self.selected_cell.text = str(num); self.game.board[row][col] = num
-            self.selected_cell._update_appearance()
-            
+            cell.is_error = False
+            cell.text = str(num)
+            self.game.board[row][col] = num
             self.reset_highlights()
             self.highlight_matching_numbers(num)
-            self.selected_cell.background_color = HIGHLIGHT_SELECTED_COLOR
-            
-            if self.game.check_win(): 
+            cell.set_state(STATE_SELECTED)
+            if self.game.check_win():
                 self.game_locked = True
-                Clock.schedule_once(lambda dt: self.show_win_message(), 0.5)
+                Clock.schedule_once(lambda _dt: self.show_win_message(), 0.5)
         else:
-            self.selected_cell.is_error = True
-            self.selected_cell.text = str(num)
-            # 不把非法值写入 board，避免污染模型、堵死同行/列/宫的正确落子
-            self.selected_cell.background_color = (0.9, 0.6, 0.6, 1)
-    
-    def erase_cell(self, instance):
-        if self.game_locked: return
-        if not self.selected_cell or self.selected_cell.is_original: return
-        self.selected_cell.text = ''; self.game.board[self.selected_cell.row][self.selected_cell.col] = 0
-        self.selected_cell.is_error = False
-        self.selected_cell._update_appearance()
+            # 非法值只作提示，不写入棋盘
+            cell.is_error = True
+            cell.text = str(num)
+            cell.set_state(STATE_NORMAL)
+
+    def _clear_cell(self, cell):
+        cell.text = ""
+        cell.is_error = False
+        self.game.board[cell.row][cell.col] = 0
+        cell.set_state(STATE_NORMAL)
+
+    def erase_cell(self, _button):
+        if self.game_locked:
+            return
+        if self.selected_cell is None or self.selected_cell.is_original:
+            return
+        self._clear_cell(self.selected_cell)
         self.selected_cell = None
         self.reset_highlights()
-    
-    def show_difficulty_menu(self, instance):
+
+    # ---------------- 难度与新局 ----------------
+    def show_difficulty_menu(self, button):
+        if self._dropdown is not None:
+            self._dropdown.dismiss()
+
         dropdown = DropDown()
-        for diff, name in [('easy','简单'), ('medium','中等'), ('hard','困难')]:
-            btn = VintageButton(text=name, size_hint_y=None, height=44, font_size=16)
-            btn.bind(on_release=lambda btn, d=diff, n=name: self.change_difficulty(d, n, dropdown))
-            dropdown.add_widget(btn)
-        dropdown.open(instance)
-    
+        for difficulty, name in (
+            ("easy", "简单"),
+            ("medium", "中等"),
+            ("hard", "困难"),
+        ):
+            item = VintageButton(
+                text=name, size_hint_y=None, height=44, font_size=16
+            )
+            item.bind(
+                on_release=lambda _btn, d=difficulty, n=name: self.change_difficulty(
+                    d, n, dropdown
+                )
+            )
+            dropdown.add_widget(item)
+
+        self._dropdown = dropdown
+        dropdown.open(button)
+
     def change_difficulty(self, difficulty, display_name, dropdown):
-        self.difficulty_btn.text = f'难度: {display_name}'; dropdown.dismiss()
-        self.game_locked = False
-        self.game = SudokuGame(difficulty); self.selected_cell = None; self.create_grid()
-    
-    def new_game(self, instance):
-        self.game_locked = False
-        self.game = SudokuGame(self.game.difficulty); self.selected_cell = None; self.create_grid()
-    
-    # ==========================================
-    # ✅ 隐藏功能：一键通关（按 F12 触发）
-    # ==========================================
-    def on_keyboard(self, window, key, scancode, codepoint, modifier):
-        # 监控键盘事件，F12 的键码是 293
-        if key == 293:
-            self.debug_complete_game()
-            return True
-        return False
+        self.difficulty_btn.text = f"难度: {display_name}"
+        dropdown.dismiss()
+        self.start_new_game(difficulty)
 
-    def debug_complete_game(self):
-        if self.game_locked: return # 如果已经通关则跳过
-        self.game_locked = True
-        
-        # 瞬间把正确答案填满所有格子
-        for i in range(9):
-            for j in range(9):
-                cell = self.cells.get((i, j))
-                if cell and not cell.is_original:
-                    num = self.game.solution[i][j]
-                    cell.text = str(num)
-                    cell.is_error = False # 清除任何错误标记
-                    self.game.board[i][j] = num
-                    cell._update_appearance()
-        
-        self.reset_highlights()
-        self.selected_cell = None
-        Clock.schedule_once(lambda dt: self.show_win_message(), 0.2)
+    def new_game(self, _button):
+        self.start_new_game(self.game.difficulty)
 
-    # ==========================================
-    # ✅ 使用 ModalView 消除残留色块
-    # ==========================================
+    def start_new_game(self, difficulty):
+        self.game_locked = False
+        self.game = SudokuGame(difficulty)
+        self.create_grid()
+
+    # ---------------- 通关提示 ----------------
     def show_win_message(self):
-        content = BoxLayout(orientation='vertical', padding=30, spacing=15)
-        
-        with content.canvas.before:
-            Color(0.96, 0.94, 0.88, 1)
-            self.win_bg_rect = Rectangle(pos=content.pos, size=content.size)
-        content.bind(pos=self._update_win_bg, size=self._update_win_bg)
-        
-        content.add_widget(Label(text='完成！', font_size=32, bold=True, color=(0.2, 0.15, 0.1, 1), font_name=COMMON_FONT))
-        content.add_widget(Label(text='你成功解出了数独！', font_size=18, color=(0.3, 0.2, 0.1, 1), font_name=COMMON_FONT))
-        
-        close_btn = VintageButton(text='继续', size_hint=(0.5, None), height=50, pos_hint={'center_x': 0.5})
+        content = BoxLayout(orientation="vertical", padding=30, spacing=15)
+        self._paint_background(content, BG_COLOR)
+        content.add_widget(
+            Label(
+                text="完成！",
+                font_size=32,
+                bold=True,
+                color=TEXT_GIVEN_COLOR,
+                font_name=COMMON_FONT,
+            )
+        )
+        content.add_widget(
+            Label(
+                text="你成功解出了数独！",
+                font_size=18,
+                color=(0.3, 0.2, 0.1, 1),
+                font_name=COMMON_FONT,
+            )
+        )
+        close_btn = VintageButton(
+            text="继续",
+            size_hint=(0.5, None),
+            height=50,
+            pos_hint={"center_x": 0.5},
+        )
         content.add_widget(close_btn)
-        
-        modal = ModalView(size_hint=(0.7, 0.4), background_color=(0, 0, 0, 0.4)) 
+
+        modal = ModalView(size_hint=(0.7, 0.4), background_color=(0, 0, 0, 0.4))
         modal.add_widget(content)
         close_btn.bind(on_release=modal.dismiss)
+        modal.bind(on_dismiss=self._forget_win_modal)
+        self._win_modal = modal
         modal.open()
-        
-    def _update_win_bg(self, instance, value):
-        self.win_bg_rect.pos = instance.pos
-        self.win_bg_rect.size = instance.size
 
-if __name__ == '__main__':
-    try: SudokuApp().run()
-    except Exception as e: print(f"程序出错: {e}"); input("按回车键退出...")
+    def _forget_win_modal(self, *_args):
+        self._win_modal = None
+
+
+if __name__ == "__main__":
+    SudokuApp().run()
