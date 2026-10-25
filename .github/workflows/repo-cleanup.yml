@@ -1,0 +1,35 @@
+name: Repo Cleanup (one-shot)
+
+# 一次性工作流：删除仓库中不再使用的文件，并在同一次提交中删除自身。
+# 跑完后本文件从仓库消失，不会重复执行。
+on:
+  push:
+    paths:
+      - '.github/workflows/repo-cleanup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Remove unused files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 未被任何工作流/代码引用的文件
+          git rm -q --ignore-unmatch scripts/sign_locally.sh subset_font.py size-report.txt
+
+          # 删除本工作流自身
+          git rm -q .github/workflows/repo-cleanup.yml
+
+          git commit -m "chore: 删除仓库中不再使用的文件"
+          git push
+
+      - name: Show remaining files
+        run: git ls-files
