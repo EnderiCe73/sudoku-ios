@@ -176,15 +176,6 @@ jobs:
           xcodebuild -project "${APP_NAME}.xcodeproj" -list
           cd ..
 
-      # ====================== 10. 构建 (严格按 kivy-ios 官方 CI 格式) ======================
-      # 命令格式参考:
-      #   xcodebuild -project <name>-ios/<name>.xcodeproj \
-      #              -scheme <name> \
-      #              -destination generic/platform=iOS \
-      #              clean build CODE_SIGNING_ALLOWED=NO
-      # 额外参数:
-      #   - ENABLE_USER_SCRIPT_SANDBOXING=NO (Xcode 14+ 默认沙箱会阻止 Run Script)
-      #   - IPHONEOS_DEPLOYMENT_TARGET=14.0  (对齐 buildozer.spec)
       # ====================== 10. Patch pbxproj —— 让 Run Script 里的 compileall 不致命 ======================
       # kivy-ios 生成的 Run Script 会对 dist/ 下所有 .py 执行 python3 -m compileall,
       # 遇到故意带非 UTF-8 字节的测试文件会 SyntaxError 并中止构建。
@@ -246,6 +237,10 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            DEPLOYMENT_POSTPROCESSING=YES \
+            STRIP_INSTALLED_PRODUCT=YES \
+            COPY_PHASE_STRIP=YES \
+            STRIP_STYLE=all \
             clean build \
             2>&1 | tee build.log
 
@@ -317,6 +312,48 @@ jobs:
           echo "[OK] 最终定位到: $APP_PATH"
           ls -la "$APP_PATH"
 
+      # ====================== 11.5 裁剪 .app 体积 ======================
+      # kivy-ios 会把整个 CPython 标准库 + Kivy + 所有 C 扩展原样塞进 .app,
+      # 且二进制带调试符号 —— 这是 IPA 体积远大于 PyInstaller EXE 的根本原因。
+      # 这里删掉运行时不用的文件,并对动态库去符号。
+      - name: Trim .app bundle (reduce size)
+        run: |
+          APP="${{ steps.locate.outputs.app_path }}"
+          echo "=== 裁剪前 ==="
+          du -sh "$APP"
+          du -sh "$APP"/* 2>/dev/null | sort -h | tail -12
+
+          # 1) 静态库/中间产物/调试符号/头文件/字节码 —— 运行时完全不需要
+          find "$APP" -type f \( \
+            -name "*.a" -o -name "*.o" -o -name "*.h" -o \
+            -name "*.pyc" -o -name "*.pyo" -o -name "*.pdb" \
+          \) -delete 2>/dev/null || true
+          find "$APP" -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
+          find "$APP" -type d -name "*.dSYM" -prune -exec rm -rf {} + 2>/dev/null || true
+
+          # 2) 标准库里与游戏运行无关的开发/测试模块
+          for d in test tkinter lib2to3 distutils ensurepip idlelib pydoc_data unittest venv; do
+            find "$APP" -type d -path "*/Lib/$d" -prune -exec rm -rf {} + 2>/dev/null || true
+          done
+
+          # 3) 动态库/主程序去掉调试符号(未签名,可安全 strip)
+          find "$APP" -type f \( -name "*.so" -o -name "*.dylib" \) -exec strip -S {} \; 2>/dev/null || true
+          MAIN_BIN=$(find "$APP" -maxdepth 1 -type f -perm -111 | head -1)
+          if [ -n "$MAIN_BIN" ]; then
+            strip -S "$MAIN_BIN" 2>/dev/null || true
+          fi
+
+          echo "=== 裁剪后 ==="
+          du -sh "$APP"
+          du -sh "$APP"/* 2>/dev/null | sort -h | tail -12
+
+          # 主可执行文件必须还在,否则说明裁过头了
+          if [ -z "$MAIN_BIN" ] || [ ! -f "$MAIN_BIN" ]; then
+            echo "::error::裁剪后找不到主可执行文件"
+            exit 1
+          fi
+          echo "[OK] 裁剪完成"
+
       # ====================== 12. 打包 IPA ======================
       - name: Package unsigned IPA
         run: |
@@ -326,8 +363,8 @@ jobs:
           mkdir -p "$STAGE/Payload"
           cp -R "$APP_PATH" "$STAGE/Payload/"
           cd "$STAGE"
-          # -0 = store (不压缩),iOS 对 IPA 压缩有限制
-          zip -qry "${{ github.workspace }}/${APP_NAME}-unsigned.ipa" Payload
+          # -9 = 最大压缩级别
+          zip -9qry "${{ github.workspace }}/${APP_NAME}-unsigned.ipa" Payload
           cd "${{ github.workspace }}"
           ls -lh "${APP_NAME}-unsigned.ipa"
 
