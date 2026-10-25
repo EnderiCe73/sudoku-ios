@@ -25,6 +25,8 @@ jobs:
     name: Build Unsigned IPA
     runs-on: macos-latest
     timeout-minutes: 90
+    permissions:
+      contents: write
 
     steps:
       # ====================== 1. Checkout ======================
@@ -151,10 +153,6 @@ jobs:
           find "${APP_NAME}-ios/YourApp" -maxdepth 3 2>/dev/null || echo "YourApp 目录不存在"
 
       # ====================== 8. 清空 YourApp 模板占位文件 ======================
-      # toolchain create 会生成 YourApp/ 模板目录,里面有 README.txt/android.txt/
-      # pictures.kv/shadow32.png 等占位文件。Run Script 里的 rsync 在同步源码时
-      # 会遇到这些"不属于你的项目"的文件,触发 code 24 (file has vanished)。
-      # 解法: 清空模板文件但保留 YourApp/ 目录本身,让 rsync 从干净状态开始。
       - name: Clean YourApp template files
         run: |
           APP_NAME="sudoku_app"
@@ -247,7 +245,7 @@ jobs:
           echo "--- Build exit code: ${PIPESTATUS[0]} ---"
           cd ..
 
-      # ====================== 10.5 失败时直接打印关键报错(便于定位,无需下载 artifact) ======================
+      # ====================== 10.5 失败时直接打印关键报错 ======================
       - name: Dump build errors (on failure)
         if: failure()
         run: |
@@ -272,7 +270,6 @@ jobs:
         id: locate
         run: |
           APP_NAME="sudoku_app"
-          # 1) 从 xcodebuild 构建设置获取产物目录
           cd "${APP_NAME}-ios"
           BUILT_DIR=$(xcodebuild \
             -project "${APP_NAME}.xcodeproj" \
@@ -288,40 +285,30 @@ jobs:
             APP_PATH="$BUILT_DIR/${APP_NAME}.app"
             echo "[OK] 从 BUILT_PRODUCTS_DIR 定位到: $APP_PATH"
           fi
-
-          # 2) 兜底: 搜索 DerivedData
           if [ -z "$APP_PATH" ]; then
             echo "[WARN] 构建设置未返回,搜索 DerivedData..."
             APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
               -name "${APP_NAME}.app" -type d -maxdepth 10 2>/dev/null | head -1)
           fi
-
-          # 3) 最后兜底: 搜索项目目录
           if [ -z "$APP_PATH" ]; then
             echo "[WARN] DerivedData 也未找到,搜索项目目录..."
             APP_PATH=$(find "${APP_NAME}-ios" \
               -name "${APP_NAME}.app" -type d 2>/dev/null | head -1)
           fi
-
           if [ -z "$APP_PATH" ]; then
             echo "::error::未找到 ${APP_NAME}.app,请下载 build-log artifact 查看"
             exit 1
           fi
-
           echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
           echo "[OK] 最终定位到: $APP_PATH"
           ls -la "$APP_PATH"
 
       # ====================== 11.5 裁剪 .app 体积 ======================
-      # kivy-ios 会把整个 CPython 标准库 + Kivy + 所有 C 扩展原样塞进 .app,
-      # 且二进制带调试符号 —— 这是 IPA 体积远大于 PyInstaller EXE 的根本原因。
-      # 这里删掉运行时不用的文件,并对动态库去符号。
       - name: Trim .app bundle (reduce size)
         run: |
           APP="${{ steps.locate.outputs.app_path }}"
           echo "=== 裁剪前 ==="
           du -sh "$APP"
-          du -sh "$APP"/* 2>/dev/null | sort -h | tail -12
 
           # 1) 静态库/中间产物/调试符号/头文件/字节码 —— 运行时完全不需要
           find "$APP" -type f \( \
@@ -331,10 +318,18 @@ jobs:
           find "$APP" -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
           find "$APP" -type d -name "*.dSYM" -prune -exec rm -rf {} + 2>/dev/null || true
 
-          # 2) 标准库里与游戏运行无关的开发/测试模块
-          for d in test tkinter lib2to3 distutils ensurepip idlelib pydoc_data unittest venv; do
+          # 2) 标准库里与游戏运行无关的开发/测试/网络/多媒体模块
+          for d in test tests tkinter lib2to3 distutils ensurepip idlelib pydoc_data pydoc \
+                   unittest venv doctest curses dbm shelve sqlite3 xml html email http \
+                   asyncio multiprocessing concurrent wsgiref smtplib imaplib poplib \
+                   ftplib telnetlib mailbox wave chunk imghdr sndhdr sunau audioop \
+                   zipapp pickletools; do
             find "$APP" -type d -path "*/Lib/$d" -prune -exec rm -rf {} + 2>/dev/null || true
           done
+
+          # 2.5) 非运行时目录:头文件、pkgconfig、文档、包元数据
+          find "$APP" -type d \( -name "include" -o -name "pkgconfig" -o -name "share" \
+            -o -name "*.dist-info" -o -name "*.egg-info" \) -prune -exec rm -rf {} + 2>/dev/null || true
 
           # 3) 动态库/主程序去掉调试符号(未签名,可安全 strip)
           find "$APP" -type f \( -name "*.so" -o -name "*.dylib" \) -exec strip -S {} \; 2>/dev/null || true
@@ -345,14 +340,46 @@ jobs:
 
           echo "=== 裁剪后 ==="
           du -sh "$APP"
-          du -sh "$APP"/* 2>/dev/null | sort -h | tail -12
 
-          # 主可执行文件必须还在,否则说明裁过头了
+          # 体积报告:写入 size-report.txt 并提交回仓库,便于后续精准裁剪
+          {
+            echo "run: ${{ github.run_number }}"
+            echo "commit: ${{ github.sha }}"
+            echo ""
+            echo "=== .app 顶层目录 ==="
+            du -sh "$APP"/* 2>/dev/null | sort -h
+            echo ""
+            echo "=== .app 内最大的 40 个文件 ==="
+            find "$APP" -type f -exec du -k {} + 2>/dev/null | sort -rn | head -40 | awk '{printf "%.1f MB\t%s\n", $1/1024, $2}'
+            echo ""
+            echo "=== .app 总体积 ==="
+            du -sh "$APP"
+            echo ""
+            echo "=== dist 顶层 ==="
+            du -sh "$HOME/kivyios-dist"/* 2>/dev/null | sort -h
+          } > size-report.txt
+          cat size-report.txt
+          cat size-report.txt >> "$GITHUB_STEP_SUMMARY"
+
           if [ -z "$MAIN_BIN" ] || [ ! -f "$MAIN_BIN" ]; then
             echo "::error::裁剪后找不到主可执行文件"
             exit 1
           fi
           echo "[OK] 裁剪完成"
+
+      # 把体积报告提交回仓库,便于下轮精准裁剪
+      - name: Publish size report
+        if: always()
+        run: |
+          if [ ! -f size-report.txt ]; then
+            echo "[INFO] 无体积报告,跳过"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add size-report.txt
+          git commit -m "chore: size report (run ${{ github.run_number }})" || exit 0
+          git push || echo "[WARN] 推送体积报告失败(不影响构建)"
 
       # ====================== 12. 打包 IPA ======================
       - name: Package unsigned IPA
