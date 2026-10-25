@@ -13,6 +13,10 @@ on:
         required: false
         default: ''
   push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-ios.yml'
     tags:
       - 'v*'
 
@@ -87,15 +91,31 @@ jobs:
       # iOS 运行时不需要测试套件,直接删除即可
       - name: Remove CPython test suite from dist
         run: |
-          echo "[FIX] 删除 dist 里的 Lib/test 目录(compileall 会故意在这些文件上失败)"
-          echo "--- 删除前 dist 里的 Lib/test ---"
-          find dist -type d -name "test" -path "*/Lib/*" -print || echo "无 Lib/test 目录"
+          # ⚠️ 关键: dist 是软链接,而 find 默认不跟随软链接起点,
+          #    所以必须用真实路径 $HOME/kivyios-dist 来操作,否则删除无效。
+          DIST_REAL="$HOME/kivyios-dist"
+          if [ ! -d "$DIST_REAL" ]; then
+            DIST_REAL="dist"
+          fi
+          echo "[INFO] 实际操作目录: $DIST_REAL"
+          echo "[INFO] 是否软链接: $(if [ -L "$DIST_REAL" ]; then echo yes; else echo no; fi)"
+
+          echo "--- 删除前 ---"
+          find "$DIST_REAL" -type d -path "*/Lib/test" -print 2>/dev/null | head -5 || true
+          find "$DIST_REAL" -type f -path "*/Lib/test/tokenizedata/*.py" -print 2>/dev/null | head -5 || true
+
           echo "--- 执行删除 ---"
-          find dist -type d -path "*/Lib/test" -prune -exec rm -rf {} + 2>/dev/null || true
-          find dist -type f -path "*/Lib/test/tokenizedata/*.py" -delete 2>/dev/null || true
+          find "$DIST_REAL" -type d -path "*/Lib/test" -prune -exec rm -rf {} + 2>/dev/null || true
+          find "$DIST_REAL" -type f -path "*/Lib/test/tokenizedata/*.py" -delete 2>/dev/null || true
+
           echo "--- 删除后验证 ---"
-          find dist -type d -name "test" -path "*/Lib/*" -print || echo "[OK] Lib/test 已清除"
-          ls -la dist/ 2>/dev/null | head -10
+          COUNT=$(find "$DIST_REAL" -type d -path "*/Lib/test" -print 2>/dev/null | wc -l | tr -d ' ')
+          echo "[RESULT] 剩余 Lib/test 目录数量: $COUNT"
+          if [ "$COUNT" != "0" ]; then
+            echo "::error::Lib/test 未能完全删除,路径遍历可能有问题"
+            exit 1
+          fi
+          echo "[OK] Lib/test 已清除"
 
       - name: Save toolchain cache
         uses: actions/cache@v4
@@ -166,9 +186,10 @@ jobs:
       #   - ENABLE_USER_SCRIPT_SANDBOXING=NO (Xcode 14+ 默认沙箱会阻止 Run Script)
       #   - IPHONEOS_DEPLOYMENT_TARGET=14.0  (对齐 buildozer.spec)
       # ====================== 10. Patch pbxproj —— 让 Run Script 里的 compileall 不致命 ======================
-      # kivy-ios 生成的 Run Script 会对 dist/ 下所有 .py 执行 python3 -m compileall
-      # 即使删了 Lib/test,仍有边缘文件可能触发 SyntaxError。
-      # 最简方案:用 sed 把 compileall 整行注释掉(CPython 已由 toolchain 编译好,.pyc 运行时不需要)
+      # kivy-ios 生成的 Run Script 会对 dist/ 下所有 .py 执行 python3 -m compileall,
+      # 遇到故意带非 UTF-8 字节的测试文件会 SyntaxError 并中止构建。
+      # 方案:把 "-m compileall" 换成 "-c pass" (python 直接退出 0,原参数变多余参数被忽略)
+      # ⚠️ 替换内容不能包含双引号,否则会破坏 pbxproj 的字符串语法
       - name: Patch Run Script — 禁用 compileall
         run: |
           APP_NAME="sudoku_app"
@@ -178,22 +199,27 @@ jobs:
             exit 1
           fi
 
-          echo "[FIX] 禁用 pbxproj Run Script 里的 compileall 命令"
           cp "$PBXPROJ" "${PBXPROJ}.bak"
+          BEFORE=$(grep -o "compileall" "$PBXPROJ" | wc -l | tr -d ' ')
+          echo "[INFO] patch 前 compileall 出现次数: $BEFORE"
 
-          echo "--- patch 前 compileall 行 ---"
-          grep -n "compileall" "$PBXPROJ" || echo "(未找到 compileall,可能无需 patch)"
+          if [ "$BEFORE" != "0" ]; then
+            # 只替换命令本身,不引入任何引号/特殊字符
+            perl -i -pe 's|-m\s+compileall|-c pass|g' "$PBXPROJ"
+          fi
 
-          # 最简方案:把 "python3 -m compileall" 替换成 "echo COMPILEALL_SKIPPED"
-          # 这样即使后面还有参数(如 -q 或目录路径),echo 也会原样输出并返回 0
-          # perl -i -pe 比 sed 更可靠处理含引号/特殊字符的内容
-          perl -i -pe 's|python3\?\s+-m\s+compileall|echo "COMPILEALL_SKIPPED"|g' "$PBXPROJ"
-
-          echo "--- patch 后验证 ---"
-          grep -n "COMPILEALL_SKIPPED" "$PBXPROJ" && echo "[OK] patch 成功" || echo "(未找到 COMPILEALL_SKIPPED,可能原本就没有 compileall)"
-
+          AFTER=$(grep -o "compileall" "$PBXPROJ" | wc -l | tr -d ' ')
+          echo "[RESULT] patch 后 compileall 出现次数: $AFTER"
+          echo "--- patch 后相关行 ---"
+          grep -n "\-c pass" "$PBXPROJ" | head -3 || echo "(无 -c pass)"
           echo "--- pbxproj 大小 ---"
           wc -c "$PBXPROJ"
+
+          if [ "$AFTER" != "0" ]; then
+            echo "::error::pbxproj 里仍有 compileall,替换失败"
+            exit 1
+          fi
+          echo "[OK] compileall 已禁用"
 
       - name: Build .app (Release, arm64 for iOS)
         id: build
@@ -207,8 +233,8 @@ jobs:
             find YourApp -mindepth 1 -maxdepth 1 -exec rm -rf {} +
           fi
 
-          # 再次确认 dist 里没有 Lib/test (双重保险)
-          find ../dist -type d -path "*/Lib/test" -prune -exec rm -rf {} + 2>/dev/null || true
+          # 双重保险:再次清掉真实缓存目录里的 Lib/test
+          find "$HOME/kivyios-dist" -type d -path "*/Lib/test" -prune -exec rm -rf {} + 2>/dev/null || true
 
           xcodebuild \
             -project "${APP_NAME}.xcodeproj" \
@@ -225,6 +251,26 @@ jobs:
 
           echo "--- Build exit code: ${PIPESTATUS[0]} ---"
           cd ..
+
+      # ====================== 10.5 失败时直接打印关键报错(便于定位,无需下载 artifact) ======================
+      - name: Dump build errors (on failure)
+        if: failure()
+        run: |
+          LOG="sudoku_app-ios/build.log"
+          if [ ! -f "$LOG" ]; then
+            echo "[WARN] 未生成 build.log(失败发生在上一步)"
+            exit 0
+          fi
+          echo "===== 关键错误行 ====="
+          grep -nE "error:|Error:|SyntaxError|BUILD FAILED|command not found|No such file" "$LOG" | tail -40 || true
+          echo "===== 最后 60 行 ====="
+          tail -60 "$LOG" || true
+          {
+            echo "### Build 关键错误摘要"
+            echo '```'
+            grep -nE "error:|Error:|SyntaxError|BUILD FAILED|command not found" "$LOG" | tail -20 || echo "(未匹配到 error 关键字)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # ====================== 11. 定位 .app 产物 ======================
       - name: Locate .app bundle
